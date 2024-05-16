@@ -1,11 +1,10 @@
 #include <Arduino.h>
-#include <ArduinoJson.h>
 #include <LoRa.h>
 #include <LoRaHomeNode.h>
 #include <SPI.h>
 #include "sensors.h"
 
-// #define DEBUG
+#define DEBUG
 
 #ifdef DEBUG
 #define DEBUG_MSG(x) Serial.println(F(x))

@@ -15,9 +15,7 @@
  * @brief Construct a new Node:: Node object
  **********************************************************************/
 Sensors::Sensors() :
-    mLux(PIN_LUX_METER),
-    mTempHumidity(PIN_DHT22, DHT22),
-    mLight(PIN_LIGHT, BUTTON_UP_TIME)
+    mCounter(0)
 {
 }
 
@@ -32,9 +30,6 @@ void Sensors::appSetup() {
     setTransmissionTimeInterval(TRANSMISSION_TIME_INTERVAL);
     // ask for current state transmission
     setTransmissionNowFlag(true);
-
-    //Initialize Temperature Humidity sensor
-    mTempHumidity.begin();
 }
 
 
@@ -44,10 +39,7 @@ void Sensors::appSetup() {
 */
 void Sensors::addJsonTxPayload(JsonDocument& payload) {
 
-    payload[MSG_LUX] = mLux.Get();
-    payload[MSG_HUMIDITY] = mTempHumidity.readHumidity();
-    payload[MSG_TEMP] = mTempHumidity.readTemperature();
-    payload[MSG_LIGHT_STATE] = mLight.GetState();
+    payload["test"] = mCounter++;
     serializeJson(payload, Serial);
 }
 
@@ -59,22 +51,8 @@ void Sensors::addJsonTxPayload(JsonDocument& payload) {
 * return true in case of new message received
 */
 bool Sensors::parseJsonRxPayload(JsonDocument& payload) {
-    bool isMessageReceived(false);
-
-    if (!payload[MSG_LIGHT].isNull()) {
-        if (ON == payload[MSG_LIGHT]) {
-            mLight.Enable();
-        }
-        else if (OFF == payload[MSG_LIGHT]) {
-            mLight.Enable();
-        }
-        isMessageReceived = true;
-    }
-    if (!payload[MSG_SAMPLING].isNull()) {
-        setTransmissionTimeInterval(payload[MSG_SAMPLING]);
-    }
-    needTransmissionNow = true;
-    return isMessageReceived;
+    DEBUG_MSG("Parsing JSON Rx payload");
+    return false;
 }
 
 /**
@@ -83,16 +61,5 @@ bool Sensors::parseJsonRxPayload(JsonDocument& payload) {
 * ONe should benefit from using processingTimeInterval to avoid overloading the node
 */
 bool Sensors::appProcessing() {
-    bool isRunFastly(false);
-
-    // Sample lux measure
-    mLux.Run();
-
-    // Handle push pull button to go back to off
-    if(eActive == mLight.GetState()) {
-        mLight.Handle();
-        isRunFastly = true;
-    }
-
-    return isRunFastly;
+    return false;
 }

@@ -4,10 +4,6 @@
 #include <ArduinoJson.h>
 #include <Arduino.h>
 #include <LoRaNode.h>
-#include "actionner/HBridge.h"
-#include "actionner/PushPullButton.h"
-#include "reader/AnalogInputFiltered.h"
-#include "reader/DHT/DHT.h"
 
 class Sensors : public LoRaNode
 {
@@ -21,12 +17,7 @@ public:
     virtual bool parseJsonRxPayload(JsonDocument& payload) override;
 
 private:
-    void commandRelay(uint8_t relay, uint8_t cmd);
-    void parseJsonRelayCmd(uint8_t relay, char* cmd);
-
-    AnalogInputFiltered mLux;
-    DHT mTempHumidity;
-    PushPullButton mLight;
+    uint32_t mCounter;
 };
 
 #endif
