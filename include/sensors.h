@@ -2,7 +2,7 @@
 #define SENSORS_H
 
 #include <Arduino.h>
-#include <LoRaNode.h>
+#include "loRaOverlay/LoRaNode.h"
 
 class Sensors : public LoRaNode
 {

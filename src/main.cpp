@@ -1,6 +1,6 @@
 #include <Arduino.h>
 #include <LoRa.h>
-#include <LoRaHomeNode.h>
+#include <loRaOverlay/LoRaHomeNode.h>
 #include <SPI.h>
 #include "sensors.h"
 
