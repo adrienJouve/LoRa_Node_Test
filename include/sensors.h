@@ -1,7 +1,6 @@
 #ifndef SENSORS_H
 #define SENSORS_H
 
-#include <ArduinoJson.h>
 #include <Arduino.h>
 #include <LoRaNode.h>
 
@@ -11,9 +10,8 @@ public:
     Sensors();
     virtual ~Sensors() = default;
 
-    void appSetup();
     virtual bool appProcessing() override;
-    void addJsonTxPayload(JsonDocument& payload);
+    virtual JsonDocument getJsonTxPayload() override;
     virtual bool parseJsonRxPayload(JsonDocument& payload) override;
 
 private:

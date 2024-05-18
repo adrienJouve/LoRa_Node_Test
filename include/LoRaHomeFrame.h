@@ -2,6 +2,7 @@
 #define LORAHOMEFRAME_H
 
 #include <Arduino.h>
+#include <ArduinoJson.h>
 
 const uint8_t LH_FRAME_HEADER_SIZE = 8;
 const uint8_t LH_FRAME_FOOTER_SIZE = 2; // only CRC for now. TODO: add security
@@ -34,24 +35,42 @@ class LoRaHomeFrame
 {
 public:
     LoRaHomeFrame();
-    LoRaHomeFrame(uint16_t networkID, uint8_t nodeIdEmitter, uint8_t nodeIdRecipient, uint8_t messageType, uint16_t counter);
-    bool createFromRxMessage(uint8_t *rawBytesWithCRC, uint8_t length, bool checkCRC);
-    //void createAck(uint8_t nodeIdEmitter, uint8_t nodeIdRecipient, uint16_t counter);
-    uint8_t serialize(uint8_t *txBuffer);
-    bool checkCRC(uint8_t *rawBytesWithCRC, uint8_t length);
-private:
-    static uint16_t crc16_ccitt(uint8_t *data, unsigned int data_len);
+    LoRaHomeFrame(uint16_t networkID, uint8_t nodeIdEmitter, uint8_t nodeIdRecipient, uint8_t messageType);
+    virtual ~LoRaHomeFrame() = default;
 
-public:
-    uint8_t nodeIdEmitter;
-    uint8_t nodeIdRecipient;
-    uint16_t networkID;
-    uint8_t messageType;
-    uint16_t counter;
-    uint8_t payloadSize;
-    uint8_t aes_IV;
-    uint16_t crc16;
-    char jsonPayload[LH_FRAME_MAX_PAYLOAD_SIZE];
+    void setCounter(uint16_t counter);
+    uint16_t getCounter() const { return mCounter; }
+    void setPayload(const JsonDocument& payload);
+    const char* getPayload() const { return mJsonPayload; }
+
+    void clear();
+
+    uint8_t serialize(uint8_t *txBuffer);
+    bool createFromRxMessage(uint8_t *rawBytesWithCRC, uint8_t length, bool checkCRC);
+
+    uint8_t getNodeIdEmitter() const { return mNodeIdEmitter; }
+    inline uint16_t getNetworkID() { return mNetworkID; };
+    void setNodeIdRecipient(uint8_t nodeIdRecipient) { mNodeIdRecipient = nodeIdRecipient; }
+    inline uint8_t getNodeIdRecipient() { return mNodeIdRecipient; };
+    uint8_t getMessageType() const { return mMessageType; }
+
+    bool checkCRC(uint8_t *rawBytesWithCRC, uint8_t length);
+
+    void print();
+    
+private:
+    uint16_t crc16_ccitt(uint8_t *data, unsigned int data_len);
+
+protected:
+    uint16_t mNetworkID;
+    uint8_t mNodeIdEmitter;
+    uint8_t mNodeIdRecipient;
+    uint8_t mMessageType;
+    uint16_t mCounter;
+    uint8_t mPayloadSize;
+    uint8_t mAes_IV;
+    uint16_t mCrc16;
+    char mJsonPayload[LH_FRAME_MAX_PAYLOAD_SIZE];
 };
 
 #endif

@@ -14,33 +14,20 @@
 /*!********************************************************************
  * @brief Construct a new Node:: Node object
  **********************************************************************/
-Sensors::Sensors() :
+Sensors::Sensors():
+    LoRaNode(NODE_ID, TRANSMISSION_TIME_INTERVAL, PROCESSING_TIME_INTERVAL, true),
     mCounter(0)
 {
 }
 
 /**
-* Function invoked by the node right after its own setup (as per Arduino Setup function)
-* To be used for applicative setup
-*/
-void Sensors::appSetup() {
-    // set the Id of the node
-    setNodeId(NODE_ID);
-    setProcessingTimeInterval(PROCESSING_TIME_INTERVAL);
-    setTransmissionTimeInterval(TRANSMISSION_TIME_INTERVAL);
-    // ask for current state transmission
-    setTransmissionNowFlag(true);
-}
-
-
-/**
 * Add JSON Tx payload messages
 * @param payload the JSON payload to be completed as per application needs
 */
-void Sensors::addJsonTxPayload(JsonDocument& payload) {
-
+JsonDocument Sensors::getJsonTxPayload() {
+    JsonDocument payload;
     payload["test"] = mCounter++;
-    serializeJson(payload, Serial);
+    return payload;
 }
 
 /**

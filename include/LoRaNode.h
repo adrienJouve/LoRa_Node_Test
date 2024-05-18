@@ -9,13 +9,14 @@
 class LoRaNode
 {
 public:
-  LoRaNode();
 
-  /**
-    * Setup of the node.
-    * Invoke at startup
-    */
-  virtual void appSetup() = 0;
+  LoRaNode(uint8_t nodeId,
+           unsigned long transmissionTimeInterval = 10000,
+           unsigned long processingTimeInterval = 180000,
+           bool needTransmissionNow = false);
+  
+  virtual ~LoRaNode() = default;
+  
   /**
     * App processing of the node.
     * Invoke every processing time interval of the nodes before Rx and Tx
@@ -23,11 +24,17 @@ public:
     * return true if need to run fastly (at the next main loop), even false if no process in progress
     */
   virtual bool appProcessing() = 0;
+
   /**
-    * Add JSON Tx payload messages
-    * @param payload the JSON payload to be completed as per application needs
-    */
-  virtual void addJsonTxPayload(JsonDocument& payload) = 0;
+   * @brief Retrieves the JSON payload for transmission.
+   * 
+   * This method is a pure virtual function that must be implemented by derived classes.
+   * It is used to retrieve the JSON payload that will be transmitted.
+   * 
+   * @return The JSON payload as a JsonDocument object.
+   */
+  virtual JsonDocument getJsonTxPayload() = 0;
+  
   /**
     * Parse JSON Rx payload
     * One should avoid any long processing in this routine. LoraNode::AppProcessing is the one to be used for this purpose
@@ -37,26 +44,24 @@ public:
     */
   virtual bool parseJsonRxPayload(JsonDocument& payload) = 0;
 
-
-  void setNodeId(uint8_t nodeId);
   uint8_t getNodeId();
   unsigned long getTransmissionTimeInterval();
-  unsigned long getProcessingTimeInterval();
   void setTransmissionTimeInterval(unsigned long timeInterval);
+  unsigned long getProcessingTimeInterval();
   void setProcessingTimeInterval(unsigned long timeInterval);
   uint16_t getTxCounter();
   void incrementTxCounter();
-  static void setTransmissionNowFlag(bool flag);
-  static bool getTransmissionNowFlag();
+  bool getTransmissionNowFlag();
+  void setTransmissionNowFlag(bool flag);
 
 protected:
-  uint8_t NodeId = 0;
-  uint16_t TxCounter = 0;
-  unsigned long transmissionTimeInterval = 10000; // 10
+  uint8_t mNodeId;
+  uint16_t mTxCounter;
+  unsigned long mTransmissionTimeInterval;
   // node processing time interval
-  unsigned long processingTimeInterval = 180000;
+  unsigned long mProcessingTimeInterval;
   // to force immediate transmission
-  volatile static bool needTransmissionNow;
+  bool mNeedTransmissionNow;
 };
 
 #endif

@@ -17,62 +17,240 @@
 #define DEBUG_MSG_ONELINE(x)
 #endif
 
-// -------------------------------------------------------
-// LoRa HARDWARE CONFIGURATION
-// -------------------------------------------------------
-//define the pins used by the transceiver module
-
-#ifdef ARDUINO_UNO_BOARD
-#define SS (10)
-#define RST (5)
-#define DIO0 (4)
-#endif
-#ifdef ARDUINO_NANO_BOARD
-#define SS (10)
-#define RST (5)
-#define DIO0 (4)
-#endif
-
-// -------------------------------------------------------
-// LoRa MODEM SETTINGS
-// -------------------------------------------------------
-// The sync word assures you don't get LoRa messages from other LoRa transceivers
-// ranges from 0-0xFF - make sure that the node is using the same sync word
-#define LORA_SYNC_WORD 0xB2
-// frequency
-// can be changed to 433E6, 915E6
-#define LORA_FREQUENCY 868E6
-// change the spreading factor of the radio.
-// LoRa sends chirp signals, that is the signal frequency moves up or down, and the speed moved is roughly 2**spreading factor.
-// Each step up in spreading factor doubles the time on air to transmit the same amount of data.
-// Higher spreading factors are more resistant to local noise effects and will be read more reliably at the cost of lower data rate and more congestion.
-// Supported values are between 7 and 12
-#define LORA_SPREADING_FACTOR 7
-// LoRa signal bandwidth
-// Bandwidth is the frequency range of the chirp signal used to carry the baseband data.
-// Supported values are 7.8E3, 10.4E3, 15.6E3, 20.8E3, 31.25E3, 41.7E3, 62.5E3, 125E3, and 250E3
-#define LORA_SIGNAL_BANDWIDTH 125E3
-// Coding rate of the radio
-// LoRa modulation also adds a forward error correction (FEC) in every data transmission.
-// This implementation is done by encoding 4-bit data with redundancies into 5-bit, 6-bit, 7-bit, or even 8-bit.
-// Using this redundancy will allow the LoRa signal to endure short interferences.
-// The Coding Rate (CR) value need to be adjusted according to conditions of the channel used for data transmission.
-// If there are too many interference in the channel, then it’s recommended to increase the value of CR.
-// However, the rise in CR value will also increase the duration for the transmission
-// Supported values are between 5 and 8, these correspond to coding rates of 4/5 and 4/8. The coding rate numerator is fixed at 4
-#define LORA_CODING_RATE_DENOMINATOR 5
-
-#define ACK_TIMEOUT 2000 // 2000 ms max to receive an Ack
-#define MAX_RETRY_NO_VALID_ACK 3
-
+LoRaHomeNode::LoRaHomeNode(uint8_t nodeId):
+  mNodeId(nodeId),
+  mTxFrame(MY_NETWORK_ID, nodeId, LH_NODE_ID_GATEWAY, LH_MSG_TYPE_NODE_MSG_ACK_REQ),
+  mAckFrame(MY_NETWORK_ID, nodeId, LH_NODE_ID_GATEWAY, LH_MSG_TYPE_NODE_ACK),
+  mIsTxAvailable(true),
+  mTxRetryCounter(0)
+{}
 
 /**
- * @brief Construct a new LoRaHomeNode::LoRaHomeNode object
- *
- */
-LoRaHomeNode::LoRaHomeNode(Sensors& node) :
-  mNode(node)
+* initialize LoRa communication with #define settings (pins, SD, bandwidth, coding rate, frequency, sync word)
+* CRC is enabled
+* set in Rx Mode by default
+*/
+void LoRaHomeNode::setup()
 {
+  DEBUG_MSG("LoRaHomeNode::setup");
+  //setup LoRa transceiver module
+  DEBUG_MSG("--- LoRa Begin");
+  DEBUG_MSG_VAR(LORA_FREQUENCY);
+
+  while (!LoRa.begin(LORA_FREQUENCY))
+  {
+    DEBUG_MSG_ONELINE(".");
+    delay(500);
+  }
+  LoRa.setPins(SS, RST, DIO0);
+  DEBUG_MSG("--- setSpreadingFactor");
+  DEBUG_MSG_VAR(LORA_SPREADING_FACTOR);
+  LoRa.setSpreadingFactor(LORA_SPREADING_FACTOR);
+  DEBUG_MSG("--- setSignalBandwidth");
+  DEBUG_MSG_VAR(LORA_SIGNAL_BANDWIDTH);
+  LoRa.setSignalBandwidth(LORA_SIGNAL_BANDWIDTH);
+  DEBUG_MSG("--- setCodingRate");
+  DEBUG_MSG_VAR(LORA_CODING_RATE_DENOMINATOR);
+  LoRa.setCodingRate4(LORA_CODING_RATE_DENOMINATOR);
+  DEBUG_MSG("--- setSyncWord");
+  DEBUG_MSG_VAR(LORA_SYNC_WORD);
+  // Change sync word (0xF3) to match the receiver
+  // The sync word assures you don't get LoRa messages from other LoRa transceivers
+  // ranges from 0-0xFF
+  LoRa.setSyncWord(LORA_SYNC_WORD);
+  DEBUG_MSG("--- enableCrc");
+  LoRa.enableCrc();
+  
+  // set in rx mode.
+  this->rxMode();
+}
+
+/** 
+ * Send a message to the LoRa2MQTT gateway
+ * @param payload the JSON payload to be sent
+ */
+void LoRaHomeNode::sendToGateway(const JsonDocument& payload, uint8_t txCounter)
+{
+  // DEBUG_MSG("LoRaHomeNode::sendToGateway()");
+  if(false == mIsTxAvailable){
+    DEBUG_MSG("--- Tx not available");
+    return;
+  }
+
+  mIsTxAvailable = false;
+  mTxRetryCounter = 0;
+  
+  // DEBUG_MSG("--- create LoraHomeFrame");
+  // create frame
+  mTxFrame.setCounter(txCounter);
+  // create payload
+  // DEBUG_MSG("--- create LoraHomePayload");
+  JsonDocument jsonDoc = payload;;
+  jsonDoc[MSG_SNR] = LoRa.packetSnr();
+  jsonDoc[MSG_RSSI] = LoRa.packetRssi();
+  
+  mTxFrame.setPayload(jsonDoc);
+
+  send(mTxFrame, LH_FRAME_MAX_SIZE);
+  mTxRetryCounter++;
+}
+
+/**
+ * @brief Retries sending a message to the gateway.
+ * 
+ * This method is called when an acknowledgment (ack) for the message is not received.
+ * It checks if the maximum number of retries without a valid ack has been reached.
+ * If the maximum retry limit is reached, it sets the transmission availability flag to true and returns.
+ * Otherwise, it calls the send() method to resend the message and increments the retry counter.
+ */
+void LoRaHomeNode::retrySendToGateway()
+{
+  // Can't received ack for this message, so skip it to enable next message
+  if(MAX_RETRY_NO_VALID_ACK <= mTxRetryCounter){
+    DEBUG_MSG("--- Max retry reached");
+    DEBUG_MSG_VAR(mTxFrame.getCounter());
+    DEBUG_MSG_ONELINE(" -> Send FAILLURE");
+    mIsTxAvailable = true;
+    return;
+  }
+
+  send(mTxFrame, LH_FRAME_MAX_SIZE);
+  mTxRetryCounter++;
+}
+
+/**
+* [receiveLoraMessage description]
+*/
+bool LoRaHomeNode::receiveLoraMessage(JsonDocument& payload)
+{
+  //try to parse packet
+  int packetSize = LoRa.parsePacket();
+
+  // return immediately if no message available
+  if (0 >= packetSize)
+  {
+    return false;
+  }
+  // check if we can accept the message
+  if ((packetSize > LH_FRAME_MAX_SIZE)
+      || (packetSize < LH_FRAME_MIN_SIZE))
+  {
+    flushLoRaFifo();
+    return false;
+  }
+
+  DEBUG_MSG("LoRaHomeNode::receiveLoraMessage");
+
+  // read available bytes
+  uint8_t rxMessage[LH_FRAME_MAX_SIZE];
+  uint8_t msgSize(0);
+
+  for (msgSize = 0; msgSize < packetSize; msgSize++)
+  {
+    // read available bytes
+    rxMessage[msgSize] = (char)LoRa.read();
+  }
+  // create LoRa Home frame
+  LoRaHomeFrame rxFrame;
+  bool noError = rxFrame.createFromRxMessage(rxMessage, msgSize, true);
+
+  if (false == noError)
+  {
+    DEBUG_MSG("--- bad message received");
+    return false;
+  }
+
+  // check if the message is for me
+  if (rxFrame.getNetworkID() != MY_NETWORK_ID)
+  {
+    DEBUG_MSG("--- ignore message, not the right network ID");
+    return false;
+  }
+
+  DEBUG_MSG("--- message received");
+  // rxFrame.print();
+
+  // Handle ack message
+  if(mNodeId == rxFrame.getNodeIdRecipient()
+     && (rxFrame.getMessageType() == LH_MSG_TYPE_GW_ACK)
+     && (rxFrame.getNodeIdEmitter() == LH_NODE_ID_GATEWAY))
+  {
+
+      if(mTxFrame.getCounter() == rxFrame.getCounter()) {
+        mIsTxAvailable = true;
+        mTxFrame.clear();
+
+        DEBUG_MSG_ONELINE("--- ack received for Tx counter: ");
+        DEBUG_MSG_VAR(rxFrame.getCounter());
+        DEBUG_MSG(" -> Send SUCCESS");
+        return false;
+      }else {
+        DEBUG_MSG_ONELINE("--- ack received but not for this message, ack counter: ");
+        DEBUG_MSG_VAR(rxFrame.getCounter());
+      }
+  }
+
+  // Am I the node invoked for this messages
+  if (mNodeId == rxFrame.getNodeIdRecipient())
+  {
+    // deserializeJson error
+    DeserializationError error = deserializeJson(payload, rxFrame.getPayload());
+    
+    if (error)
+    {
+      DEBUG_MSG("--- deserializeJson error");
+      return false;
+    }
+    // if message received request an ack
+    if ((rxFrame.getMessageType() == LH_MSG_TYPE_GW_MSG_ACK) || (rxFrame.getMessageType() == LH_MSG_TYPE_NODE_MSG_ACK_REQ))
+    {
+      mAckFrame.setNodeIdRecipient(rxFrame.getNodeIdEmitter());
+      mAckFrame.setCounter(rxFrame.getCounter());
+
+      send(mAckFrame, LH_FRAME_MIN_SIZE);
+      DEBUG_MSG("--- ack sent");
+    }
+  }
+  else
+  {
+    DEBUG_MSG("--- ignore message, not for me");
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Returns the interval for retrying to send a message.
+ *
+ * @return The interval for retrying to send a message in milliseconds.
+ */
+unsigned long LoRaHomeNode::getRetrySendMessageInterval()
+{
+  return ACK_TIMEOUT;
+}
+
+/**
+ * Send a message to the LoRa2MQTT gateway
+ */
+void LoRaHomeNode::send(LoRaHomeFrame& frame, uint8_t bufferSize)
+{
+  // DEBUG_MSG("LoRaHomeNode::send");
+  // DEBUG_MSG("--- sending LoRa message to LoRa2MQTT gateway");
+
+  uint8_t txBuffer[bufferSize];
+  uint8_t size = frame.serialize(txBuffer);
+  // DEBUG_MSG("--- LoraHomeFrame serialized");
+
+  this->txMode();
+  LoRa.beginPacket();
+  for (uint8_t i = 0; i < size; i++)
+  {
+    LoRa.write(txBuffer[i]);
+    // DEBUG_MSG_VAR(txBuffer[i]);
+  }
+  LoRa.endPacket();
+  this->rxMode();
 }
 
 /**
@@ -97,220 +275,17 @@ void LoRaHomeNode::txMode()
   LoRa.disableInvertIQ(); // normal mode
 }
 
-/**
-* initialize LoRa communication with #define settings (pins, SD, bandwidth, coding rate, frequency, sync word)
-* CRC is enabled
-* set in Rx Mode by default
-*/
-void LoRaHomeNode::setup()
-{
-  DEBUG_MSG("LoRaHomeNode::setup");
-  //setup LoRa transceiver module
-  DEBUG_MSG("--- LoRa Begin");
-  DEBUG_MSG_VAR(LORA_FREQUENCY);
-  LoRa.setPins(SS, RST, DIO0);
-  while (!LoRa.begin(LORA_FREQUENCY))
-  {
-    DEBUG_MSG_ONELINE(".");
-    delay(500);
-  }
-  DEBUG_MSG("--- setSpreadingFactor");
-  DEBUG_MSG_VAR(LORA_SPREADING_FACTOR);
-  LoRa.setSpreadingFactor(LORA_SPREADING_FACTOR);
-  DEBUG_MSG("--- setSignalBandwidth");
-  DEBUG_MSG_VAR(LORA_SIGNAL_BANDWIDTH);
-  LoRa.setSignalBandwidth(LORA_SIGNAL_BANDWIDTH);
-  DEBUG_MSG("--- setCodingRate");
-  DEBUG_MSG_VAR(LORA_CODING_RATE_DENOMINATOR);
-  LoRa.setCodingRate4(LORA_CODING_RATE_DENOMINATOR);
-  DEBUG_MSG("--- setSyncWord");
-  DEBUG_MSG_VAR(LORA_SYNC_WORD);
-  // Change sync word (0xF3) to match the receiver
-  // The sync word assures you don't get LoRa messages from other LoRa transceivers
-  // ranges from 0-0xFF
-  LoRa.setSyncWord(LORA_SYNC_WORD);
-  DEBUG_MSG("--- enableCrc");
-  LoRa.enableCrc();
-
-  // set in rx mode.
-  this->rxMode();
-}
-
-bool LoRaHomeNode::receiveAck()
-{
-  unsigned long ackStartWaitingTime = millis();
-  //try to parse packet
-  int packetSize = LoRa.parsePacket();
-  LoRaHomeFrame lhf;
-  // DEBUG_MSG("LoRaHomeNode::receiveAck");
-  // switch to rxMode to receive ACK
-  this->rxMode();
-  while (((millis() - ackStartWaitingTime) < ACK_TIMEOUT) && (packetSize == 0))
-  {
-    packetSize = LoRa.parsePacket();
-    if (packetSize == LH_FRAME_ACK_SIZE)
-    {
-      uint8_t rxBuffer[LH_FRAME_ACK_SIZE];
-      int j = 0;
-      while (packetSize > 0)
-      {
-        // read available bytes
-        rxBuffer[j++] = (char)LoRa.read();
-        packetSize--;
-      }
-      if (lhf.createFromRxMessage(rxBuffer, j, true) == true)
-      {
-        if ((lhf.nodeIdEmitter == LH_NODE_ID_GATEWAY) && (lhf.nodeIdRecipient == mNode.getNodeId()) && (lhf.messageType == LH_MSG_TYPE_GW_ACK))
-        {
-          if (lhf.counter == mNode.getTxCounter())
-          {
-            // DEBUG_MSG("--- good ack received!");
-            return true;
-          }
-        }
-      }
-      else
-      {
-        packetSize = 0; // to loop again
-        // DEBUG_MSG("--- bad ack received!");
-      }
-    }
-  }
-  // DEBUG_MSG("--- no ACK received");
-  return false;
-}
 
 /**
-* [sendToLora2MQTTGateway description]
-*/
-void LoRaHomeNode::sendToGateway()
-{
-  int retry = 0;
-  // DEBUG_MSG("LoRaHomeNode::sendToGateway()");
-  uint8_t txBuffer[LH_FRAME_MAX_SIZE];
-  // DEBUG_MSG("--- create LoraHomeFrame");
-  // create frame
-  LoRaHomeFrame lhf(MY_NETWORK_ID, mNode.getNodeId(), LH_NODE_ID_GATEWAY, LH_MSG_TYPE_NODE_MSG_ACK_REQ, mNode.getTxCounter());
-  // create payload
-  // DEBUG_MSG("--- create LoraHomePayload");
-  JsonDocument jsonDoc;
-  mNode.addJsonTxPayload(jsonDoc);
-  jsonDoc[MSG_SNR] = LoRa.packetSnr();
-  jsonDoc[MSG_RSSI] = LoRa.packetRssi();
-  
-  serializeJson(jsonDoc, lhf.jsonPayload, LH_FRAME_MAX_PAYLOAD_SIZE);
-  //add payload to the frame if any
-  uint8_t size = lhf.serialize(txBuffer);
-  // DEBUG_MSG("--- LoraHomeFrame serialized");
-  // send the LoRa message until valid ack is received with max retries
-  bool ackReceived(false);
-  do
-  {
-    retry++;
-    this->send(txBuffer, size);
-    ackReceived = receiveAck();
-  } while ((ackReceived == false) && (retry < MAX_RETRY_NO_VALID_ACK));
-  // increment TxCounter
-  // TODO should only increment TxCounter if msg sent + ack received ... else error
-  mNode.incrementTxCounter();
-
-  if(ackReceived){
-    DEBUG_MSG("--- Send operation Finished => SUCCESS");
-  }else {
-    DEBUG_MSG("--- Send operation Finished => FAILLURE");
-  }
-  DEBUG_MSG("RSSI:");
-  DEBUG_MSG_VAR(LoRa.packetRssi());
-  DEBUG_MSG("SNR:");
-  DEBUG_MSG_VAR(LoRa.packetSnr() );
-}
-
-/**
- * @brief
- *
- * @param txBuffer
+ * @brief Flushes the LoRa FIFO by reading and discarding all available data.
+ * 
+ * This function continuously reads data from the LoRa module until the FIFO is empty.
+ * It is useful to clear the FIFO before sending or receiving new data.
  */
-void LoRaHomeNode::send(uint8_t* txBuffer, uint8_t size)
+void LoRaHomeNode::flushLoRaFifo()
 {
-  // DEBUG_MSG("LoRaHomeNode::send");
-  // DEBUG_MSG("--- sending LoRa message to LoRa2MQTT gateway");
-  this->txMode();
-  LoRa.beginPacket();
-  for (uint8_t i = 0; i < size; i++)
+  while (LoRa.available())
   {
-    LoRa.write(txBuffer[i]);
-    // DEBUG_MSG_VAR(txBuffer[i]);
+    LoRa.read();
   }
-  LoRa.endPacket();
-  this->rxMode();
-}
-
-/**
-* [receiveLoraMessage description]
-*/
-bool LoRaHomeNode::receiveLoraMessage()
-{
-  bool isMessageReceived(false);
-
-  //try to parse packet
-  int packetSize = LoRa.parsePacket();
-  // return immediately if no message available
-  if (packetSize == 0)
-  {
-    return isMessageReceived;
-  }
-  // check if we can accept the message
-  if ((packetSize > LH_FRAME_MAX_SIZE) || (packetSize < LH_FRAME_MIN_SIZE))
-  {
-    while (LoRa.available())
-    {
-      // flush Fifo
-      LoRa.read();
-    }
-    return isMessageReceived;
-  }
-  DEBUG_MSG("LoRaHomeNode::receiveLoraMessage");
-  // read bytes available
-  uint8_t rxMessage[LH_FRAME_MAX_SIZE];
-  uint8_t j = 0;
-  for (j = 0; j < packetSize; j++)
-  {
-    // read available bytes
-    rxMessage[j] = (char)LoRa.read();
-  }
-  // create LoRa Home frame
-  LoRaHomeFrame lhf;
-  lhf.createFromRxMessage(rxMessage, j, true);
-  if (lhf.networkID != MY_NETWORK_ID)
-  {
-    DEBUG_MSG("--- ignore message, not the right network ID");
-    return isMessageReceived;
-  }
-  DEBUG_MSG("--- message received");
-  JsonDocument jsonDoc;
-  uint8_t nodeInvoked = lhf.nodeIdRecipient;
-  // Am I the node invoked for this messages
-  if (nodeInvoked == mNode.getNodeId())
-  {
-    // parse JSON message
-    DeserializationError error = deserializeJson(jsonDoc, lhf.jsonPayload);
-    // deserializeJson error
-    if (error)
-    {
-      DEBUG_MSG("--- deserializeJson error");
-      return isMessageReceived;
-    }
-    // if message received request an ack
-    if ((lhf.messageType == LH_MSG_TYPE_GW_MSG_ACK) || (lhf.messageType == LH_MSG_TYPE_NODE_MSG_ACK_REQ))
-    {
-      LoRaHomeFrame lhfAck(MY_NETWORK_ID, mNode.getNodeId(), lhf.nodeIdEmitter, LH_MSG_TYPE_NODE_ACK, lhf.counter);
-      uint8_t txBuffer[LH_FRAME_MIN_SIZE];
-      uint8_t size = lhfAck.serialize(txBuffer);
-      this->send(txBuffer, size);
-      DEBUG_MSG("--- ack sent");
-    }
-    isMessageReceived = mNode.parseJsonRxPayload(jsonDoc);
-  }
-
-  return isMessageReceived;
 }

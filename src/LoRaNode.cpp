@@ -10,12 +10,18 @@
 #define DEBUG_MSG(x) // define empty, so macro does nothing
 #endif
 
-volatile bool LoRaNode::needTransmissionNow = false;
-
 /**
 * LoRaNode Constructor. Empty
 */
-LoRaNode::LoRaNode()
+LoRaNode::LoRaNode(uint8_t nodeId,
+                   unsigned long transmissionTimeInterval,
+                   unsigned long processingTimeInterval,
+                   bool needTransmissionNow ):
+  mNodeId(nodeId),
+  mTxCounter(0),
+  mTransmissionTimeInterval(transmissionTimeInterval),
+  mProcessingTimeInterval(processingTimeInterval),
+  mNeedTransmissionNow(needTransmissionNow)
 {
 }
 
@@ -26,17 +32,7 @@ LoRaNode::LoRaNode()
  */
 uint8_t LoRaNode::getNodeId()
 {
-  return this->NodeId;
-}
-
-/**
- * @brief set the Node Id
- * 
- * @param nodeId the node Id
- */
-void LoRaNode::setNodeId(uint8_t nodeId)
-{
-  this->NodeId = nodeId;
+  return mNodeId;
 }
 
 /**
@@ -45,17 +41,7 @@ void LoRaNode::setNodeId(uint8_t nodeId)
 */
 unsigned long LoRaNode::getTransmissionTimeInterval()
 {
-  return this->transmissionTimeInterval;
-}
-
-/**
- * @brief Set the ProcessingTimeInterval to callback AppProcessing method of the node
- * 
- * @param TimeInterval value in ms
- */
-void LoRaNode::setProcessingTimeInterval(unsigned long timeInterval)
-{
-  this->processingTimeInterval = timeInterval;
+  return mTransmissionTimeInterval;
 }
 
 /**
@@ -65,7 +51,26 @@ void LoRaNode::setProcessingTimeInterval(unsigned long timeInterval)
  */
 void LoRaNode::setTransmissionTimeInterval(unsigned long timeInterval)
 {
-  this->transmissionTimeInterval = timeInterval;
+  mTransmissionTimeInterval = timeInterval;
+}
+
+/**
+* Get processing time interval
+* @return processing time interval in ms. User defined paramater.
+*/
+unsigned long LoRaNode::getProcessingTimeInterval()
+{
+  return mProcessingTimeInterval;
+}
+
+/**
+ * @brief Set the ProcessingTimeInterval to callback AppProcessing method of the node
+ * 
+ * @param TimeInterval value in ms
+ */
+void LoRaNode::setProcessingTimeInterval(unsigned long timeInterval)
+{
+  mProcessingTimeInterval = timeInterval;
 }
 
 /**
@@ -75,29 +80,20 @@ void LoRaNode::setTransmissionTimeInterval(unsigned long timeInterval)
  */
 uint16_t LoRaNode::getTxCounter()
 {
-  return this->TxCounter;
+  return mTxCounter;
 }
 
 void LoRaNode::incrementTxCounter()
 {
-  this->TxCounter++;
-}
-
-/**
-* Get processing time interval
-* @return processing time interval in ms. User defined paramater.
-*/
-unsigned long LoRaNode::getProcessingTimeInterval()
-{
-  return processingTimeInterval;
+  mTxCounter++;
 }
 
 bool LoRaNode::getTransmissionNowFlag()
 {
-  return needTransmissionNow;
+  return mNeedTransmissionNow;
 }
 
 void LoRaNode::setTransmissionNowFlag(bool flag)
 {
-  needTransmissionNow = flag;
+  mNeedTransmissionNow = flag;
 }

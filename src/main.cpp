@@ -15,12 +15,14 @@
 
 // Objects instentiation
 Sensors mNode;
-LoRaHomeNode mLoRaHome(mNode);
+LoRaHomeNode mLoRaHome(mNode.getNodeId());
 
 // sampling management
-unsigned long nextSendTime;    // last send time
-unsigned long nextProcessTime; // last processing time
+unsigned long nextProcessTime;      // Next processing time
+unsigned long nextSendTime;         // Next send time
+unsigned long nextSendRetryTime;    // Next send retry time
 bool forceProcessing;
+JsonDocument receivedMessage;
 
 void setup()
 {
@@ -34,12 +36,9 @@ void setup()
   DEBUG_MSG("initializing LoRa Node");
   // initialize LoRa    
   mLoRaHome.setup();
-  // call node specific configuration (end user)
-  mNode.appSetup();
 
   // Update Data before start
-  mNode.appProcessing();
-  forceProcessing = false;
+  forceProcessing = true;
 }
 
 /**
@@ -54,6 +53,7 @@ void loop()
   // Application processing Task
   if (tick  >= nextProcessTime
     || forceProcessing) {
+    DEBUG_MSG("Processing Task");
     forceProcessing = mNode.appProcessing();
 
     nextProcessTime = millis() + mNode.getProcessingTimeInterval();
@@ -61,12 +61,29 @@ void loop()
 
   // Send Task
   if ((tick >= nextSendTime)
-    || (mNode.getTransmissionNowFlag() == true)) {
+    || (true == mNode.getTransmissionNowFlag())) {
+    DEBUG_MSG("Send Task");
     mNode.setTransmissionNowFlag(false);
-    mLoRaHome.sendToGateway();
+    mLoRaHome.sendToGateway(mNode.getJsonTxPayload(), mNode.getTxCounter());
+    mNode.incrementTxCounter();
+
     nextSendTime = millis() + mNode.getTransmissionTimeInterval();
+    nextSendRetryTime = millis() + mLoRaHome.getRetrySendMessageInterval();
+  }
+
+  // Retry message not received by the gateway
+  if ((tick >= nextSendRetryTime) && (mLoRaHome.isWaitingForAck())) {
+    DEBUG_MSG("Retry Send Task");
+    mLoRaHome.sendToGateway(mNode.getJsonTxPayload(), mNode.getTxCounter());
+
+    nextSendRetryTime = millis() + mLoRaHome.getRetrySendMessageInterval();
   }
 
   // Receive Task
-  forceProcessing = mLoRaHome.receiveLoraMessage();
+  bool messageReceived = mLoRaHome.receiveLoraMessage(receivedMessage);
+  if(messageReceived){
+    DEBUG_MSG("Receive Task");
+    mNode.parseJsonRxPayload(receivedMessage);
+    forceProcessing = true;
+  }
 }
