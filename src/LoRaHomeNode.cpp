@@ -195,6 +195,9 @@ void LoRaHomeNode::sendToGateway()
   // DEBUG_MSG("--- create LoraHomePayload");
   JsonDocument jsonDoc;
   mNode.addJsonTxPayload(jsonDoc);
+  jsonDoc[MSG_SNR] = LoRa.packetSnr();
+  jsonDoc[MSG_RSSI] = LoRa.packetRssi();
+  
   serializeJson(jsonDoc, lhf.jsonPayload, LH_FRAME_MAX_PAYLOAD_SIZE);
   //add payload to the frame if any
   uint8_t size = lhf.serialize(txBuffer);
